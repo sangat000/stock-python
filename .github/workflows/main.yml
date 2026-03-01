@@ -3,7 +3,7 @@ name: Daily Python Script
 on:
   schedule:
     # Runs at 08:00 UTC every day. Adjust the numbers for your timezone.
-    - cron: '0 8 * * *' 
+    - cron: '0 21 * * *' 
   workflow_dispatch: # This line adds a button so you can trigger it manually to test
 
 jobs:
