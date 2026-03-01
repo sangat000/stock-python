@@ -1,0 +1,34 @@
+name: Daily Python Script
+
+on:
+  schedule:
+    # Runs at 08:00 UTC every day. Adjust the numbers for your timezone.
+    - cron: '0 8 * * *' 
+  workflow_dispatch: # This line adds a button so you can trigger it manually to test
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Grab your files from the repository
+    - name: Checkout repository
+      uses: actions/checkout@v3
+
+    # 2. Set up a Python environment
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.10'
+
+    # 3. Install any required libraries
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    # 4. Run the script and pass the secure email password
+    - name: Run Python script
+      env:
+        #EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+      run: python emailtest_txt.py
