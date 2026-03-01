@@ -131,7 +131,7 @@ def generate_detailed_report(hold_days=10):
         loss_profile.columns = ['Ticker', 'Loss Count', 'Avg Loss %', 'Max Single Loss %']
 
         # Save to Excel
-        desktop_path = os.path.expanduser("~/Desktop/Cardwell_Nifty50_Report.xlsx")
+        desktop_path = os.path.expanduser("~/Cardwell_Nifty50_Report.xlsx")
 
         with pd.ExcelWriter(desktop_path) as writer:
             report_df.to_excel(writer, sheet_name='Buy-Sale Report', index=False)
