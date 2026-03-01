@@ -1,4 +1,4 @@
-name: Daily Python Script
+name: Backtest result -Carrdwell
 
 on:
   schedule:
