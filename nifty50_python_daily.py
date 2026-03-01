@@ -106,7 +106,7 @@ def run_automated_cardwell_scan():
 
     if alerts:
         alert_df = pd.DataFrame(alerts)
-        file_path = os.path.expanduser("~/Desktop/Cardwell_Daily_Report.xlsx")
+        file_path = os.path.expanduser("~/Cardwell_Daily_Report.xlsx")
         alert_df.to_excel(file_path, index=False)
         send_email(file_path, len(alerts))
     else:
