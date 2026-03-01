@@ -6,7 +6,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.base import MIMEBase
 from email import encoders
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # --- CONFIGURATION ---
 SENDER_EMAIL = "sangat000@gmail.com"
@@ -35,19 +35,21 @@ def get_rsi(series, period=14):
     return 100 - (100 / (1 + rs))
 
 
-def send_email(file_path, pr_count, nr_count):
+def send_email(file_path, pr_count, nr_count, backtest_count):
     msg = MIMEMultipart()
     msg['From'] = SENDER_EMAIL
     msg['To'] = RECEIVER_EMAIL
-    msg['Subject'] = f"NSE Cardwell Alert: {pr_count} Bullish | {nr_count} Bearish"
+    msg['Subject'] = f"NSE Cardwell Report: {pr_count} PR | {nr_count} NR"
 
-    body = (f"Daily Cardwell RSI scan for {datetime.now().strftime('%Y-%m-%d')} is complete.\n\n"
-            f"Positive Reversals (Bullish): {pr_count}\n"
-            f"Negative Reversals (Bearish): {nr_count}\n\n"
-            "Detailed report is attached.")
+    body = (f"Scan completed for {datetime.now().strftime('%Y-%m-%d')}.\n\n"
+            f"--- TODAY'S SIGNALS ---\n"
+            f"Positive Reversals: {pr_count}\n"
+            f"Negative Reversals: {nr_count}\n\n"
+            f"--- 3-MONTH BACKTEST ---\n"
+            f"Historical Signals Found: {backtest_count}\n\n"
+            "Attached Excel contains today's picks and the 3-month performance history.")
 
     msg.attach(MIMEText(body, 'plain'))
-
     with open(file_path, "rb") as attachment:
         part = MIMEBase('application', 'octet-stream')
         part.set_payload(attachment.read())
@@ -66,75 +68,90 @@ def send_email(file_path, pr_count, nr_count):
         print(f"Failed to send email: {e}")
 
 
-def run_automated_cardwell_scan():
-    alerts = []
-    print(f"--- Starting Scan: {datetime.now().strftime('%Y-%m-%d %H:%M')} ---")
+def run_cardwell_with_backtest():
+    current_alerts = []
+    historical_alerts = []
+
+    # 3-Month Date Range
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=30)
+
+    print(f"--- Starting Scan & Backtest ---")
 
     for ticker in nifty50:
         try:
             df = yf.download(ticker, period="1y", interval="1d", progress=False)
-            if df.empty or len(df) < 50: continue
-
-            # Clean multi-index columns if they exist
-            if isinstance(df.columns, pd.MultiIndex):
-                df.columns = df.columns.get_level_values(0)
+            if df.empty or len(df) < 60: continue
+            if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
 
             df['RSI'] = get_rsi(df['Close'])
             w_rsi = get_rsi(df['Close'].resample('W').last()).reindex(df.index, method='ffill')
-            m_rsi = get_rsi(df['Close'].resample('M').last()).reindex(df.index, method='ffill')
 
-            # Current Values
-            curr_low = df['Low'].iloc[-1].item()
-            curr_high = df['High'].iloc[-1].item()
-            curr_rsi = df['RSI'].iloc[-1].item()
-            curr_close = df['Close'].iloc[-1].item()
+            # Logic Loop: Scan every day for the last 90 days
+            for i in range(len(df) - 65, len(df)):
+                curr_slice = df.iloc[:i + 1]
+                lookback = df.iloc[i - 30:i - 5]
 
-            # Historical Window (lookback for previous swing)
-            lookback = df.iloc[-30:-5]
-            prev_low = lookback['Low'].min()
-            prev_rsi_low = lookback['RSI'].min()
-            prev_high = lookback['High'].max()
-            prev_rsi_high = lookback['RSI'].max()
+                if lookback.empty: continue
 
-            # --- CARDWELL POSITIVE REVERSAL (BULLISH) ---
-            is_pr = (curr_low > prev_low) and (curr_rsi < prev_rsi_low)
-            is_bullish_trend = (w_rsi.iloc[-1].item() > 60) or (m_rsi.iloc[-1].item() > 60)
+                c_low = curr_slice['Low'].iloc[-1]
+                c_high = curr_slice['High'].iloc[-1]
+                c_rsi = curr_slice['RSI'].iloc[-1]
 
-            if is_pr and is_bullish_trend and (curr_rsi > 40):
-                target = curr_low + (lookback['High'].max() - prev_low)
-                alerts.append({
-                    "Ticker": ticker, "Type": "BULLISH (PR)", "Price": round(curr_close, 2),
-                    "Target/Est": round(target, 2), "Daily RSI": round(curr_rsi, 2)
-                })
+                p_low = lookback['Low'].min()
+                p_rsi_low = lookback['RSI'].min()
+                p_high = lookback['High'].max()
+                p_rsi_high = lookback['RSI'].max()
 
-            # --- CARDWELL NEGATIVE REVERSAL (BEARISH) ---
-            # Logic: Lower Price High + Higher RSI High
-            is_nr = (curr_high < prev_high) and (curr_rsi > prev_rsi_high)
-            is_bearish_trend = (w_rsi.iloc[-1].item() < 40) or (m_rsi.iloc[-1].item() < 40)
+                signal_type = None
+                target = None
 
-            if is_nr and is_bearish_trend and (curr_rsi < 60):
-                # Target for NR: Current High - (Previous High - Previous Low)
-                target = curr_high - (prev_high - lookback['Low'].min())
-                alerts.append({
-                    "Ticker": ticker, "Type": "BEARISH (NR)", "Price": round(curr_close, 2),
-                    "Target/Est": round(target, 2), "Daily RSI": round(curr_rsi, 2)
-                })
+                # Positive Reversal (PR)
+                if (c_low > p_low) and (c_rsi < p_rsi_low) and (c_rsi > 40) and (w_rsi.iloc[i] > 60):
+                    signal_type = "BULLISH (PR)"
+                    target = c_low + (p_high - p_low)
+
+                # Negative Reversal (NR)
+                elif (c_high < p_high) and (c_rsi > p_rsi_high) and (c_rsi < 60) and (w_rsi.iloc[i] < 40):
+                    signal_type = "BEARISH (NR)"
+                    target = c_high - (p_high - lookback['Low'].min())
+
+                if signal_type:
+                    date_str = curr_slice.index[-1].strftime('%Y-%m-%d')
+                    entry_price = curr_slice['Close'].iloc[-1]
+
+                    # Check Result for historical signals
+                    outcome = "Pending"
+                    if i < len(df) - 1:
+                        future_data = df.iloc[i + 1:]
+                        if signal_type == "BULLISH (PR)" and (future_data['High'] >= target).any():
+                            outcome = "Success (Target Hit)"
+                        elif signal_type == "BEARISH (NR)" and (future_data['Low'] <= target).any():
+                            outcome = "Success (Target Hit)"
+
+                    alert_data = {
+                        "Date": date_str, "Ticker": ticker, "Type": signal_type,
+                        "Price": round(entry_price, 2), "Target": round(target, 2), "Outcome": outcome
+                    }
+
+                    if i == len(df) - 1:
+                        current_alerts.append(alert_data)
+                    else:
+                        historical_alerts.append(alert_data)
 
         except Exception as e:
-            print(f"Error scanning {ticker}: {e}")
             continue
 
-    if alerts:
-        alert_df = pd.DataFrame(alerts)
-        pr_count = len(alert_df[alert_df['Type'] == "BULLISH (PR)"])
-        nr_count = len(alert_df[alert_df['Type'] == "BEARISH (NR)"])
+    # Prepare Report
+    file_path = os.path.expanduser("~/Cardwell_Full_Report.xlsx")
+    with pd.ExcelWriter(file_path) as writer:
+        pd.DataFrame(current_alerts).to_excel(writer, sheet_name='Today_Signals', index=False)
+        pd.DataFrame(historical_alerts).to_excel(writer, sheet_name='3Month_Backtest', index=False)
 
-        file_path = os.path.expanduser("~/Cardwell_Daily_Report.xlsx")
-        alert_df.to_excel(file_path, index=False)
-        send_email(file_path, pr_count, nr_count)
-    else:
-        print("No signals found today.")
+    send_email(file_path, len(current_alerts),
+               len([x for x in current_alerts if "BEARISH" in x['Type']]),
+               len(historical_alerts))
 
 
 if __name__ == "__main__":
-    run_automated_cardwell_scan()
+    run_cardwell_with_backtest()
