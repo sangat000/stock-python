@@ -27,7 +27,6 @@ jobs:
         python -m pip install --upgrade pip
         pip install yfinance
         pip install pandas
-        pip install smtplib
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         
 
